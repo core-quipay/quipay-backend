@@ -106,6 +106,11 @@ function getAuditRedactedFields(): string[] {
 
 export const config = {
   port: process.env.PORT || 3000,
+  privy: {
+    // Must equal the mobile app's Privy app ID — the worker JWT `aud` claim is
+    // checked against this in middleware/privyAuth.ts.
+    appId: process.env.PRIVY_APP_ID || "",
+  },
   stellar: {
     network: process.env.STELLAR_NETWORK || "TESTNET",
     rpcUrl:
@@ -118,3 +123,22 @@ export const config = {
     redactedFields: getAuditRedactedFields(),
   },
 };
+
+/**
+ * Fail fast on misconfiguration that would otherwise silently 401 every worker.
+ * Without PRIVY_APP_ID, privyAuth rejects all mobile requests with "Auth not
+ * configured" — a boot-time crash is far easier to diagnose than that.
+ */
+function validateRequiredEnv(): void {
+  if (!config.privy.appId) {
+    const msg =
+      "PRIVY_APP_ID is not set — worker (mobile) auth will reject every request. " +
+      "Set it to the same value as the mobile app's EXPO_PUBLIC_PRIVY_APP_ID.";
+    if (process.env.NODE_ENV === "production") {
+      throw new Error(`[config] ${msg}`);
+    }
+    console.warn(`[config] ${msg}`);
+  }
+}
+
+validateRequiredEnv();

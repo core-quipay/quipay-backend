@@ -4,10 +4,30 @@ jest.mock("../db/queries", () => ({
   recordVaultEvent: jest.fn().mockResolvedValue(undefined),
   upsertEmployerVerification: jest.fn(),
   updateTreasuryBalance: jest.fn().mockResolvedValue(undefined),
+  findUnclaimedEmployerByEmail: jest.fn().mockResolvedValue(null),
+  linkLegacyEmployerToAccount: jest.fn().mockResolvedValue(undefined),
+  updateAccountEmail: jest.fn().mockResolvedValue(undefined),
 }));
 
 jest.mock("../services/kybService", () => ({
   verifyBusinessRegistration: jest.fn(),
+}));
+
+// Real auth (rbac.ts) verifies a live Privy JWT — out of scope for these
+// route-logic tests, which fake req.user the same way reports/branding/
+// payslips route tests already do. quipayId is a distinct sentinel so
+// req.user.id (from x-user-id) never accidentally matches it.
+jest.mock("../middleware/rbac", () => ({
+  authenticateRequest: (req: any, _res: any, next: any) => {
+    req.user = {
+      id: req.headers["x-user-id"] || "owner-1",
+      role: 1,
+      accountId: 1,
+      quipayId: "QP_TEST_SENTINEL",
+    };
+    next();
+  },
+  requireUser: (_req: any, _res: any, next: any) => next(),
 }));
 
 import express from "express";
@@ -58,6 +78,7 @@ describe("employer onboarding and verification routes", () => {
         businessName: "Acme Payroll Ltd",
         registrationNumber: "RC-12345",
         countryCode: "ng",
+        stellarAddress: "G" + "A".repeat(55),
       });
 
     expect(res.status).toBe(200);
@@ -135,6 +156,7 @@ describe("employer onboarding and verification routes", () => {
         businessName: "Acme duplicate",
         registrationNumber: "RC-dup",
         countryCode: "ng",
+        stellarAddress: "G" + "B".repeat(55),
       });
 
     expect(res.status).toBe(409);
@@ -161,6 +183,7 @@ describe("employer onboarding and verification routes", () => {
         registrationNumber: "RC-dup2",
         countryCode: "ng",
         contactEmail: "dup@example.com",
+        stellarAddress: "G" + "C".repeat(55),
       });
 
     expect(res.status).toBe(409);
@@ -186,6 +209,7 @@ describe("employer onboarding and verification routes", () => {
         businessName: "Acme Name Dup",
         registrationNumber: "RC-dup3",
         countryCode: "ng",
+        stellarAddress: "G" + "D".repeat(55),
       });
 
     expect(res.status).toBe(409);

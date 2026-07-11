@@ -7,9 +7,9 @@ import { adminRouter } from "./adminRouter";
 import { analyticsRouter } from "./analytics";
 import { docsRouter } from "./swagger";
 import { proofsRouter } from "./routes/proofs";
-import { stellarRouter } from "./routes/stellar";
 import { reportsRouter } from "./routes/reports";
 import { employersRouter } from "./routes/employers";
+import { accountsRouter } from "./routes/accounts";
 import { startEventIndexer, stopEventIndexer } from "./services/eventIndexer";
 import {
   startScheduler,
@@ -179,8 +179,8 @@ app.use("/api/analytics", analyticsRouter);
 app.use("/api/v1/analytics", analyticsRouter);
 app.use("/employers", employersRouter);
 app.use("/api/employers", employersRouter);
+app.use("/api/accounts", accountsRouter);
 app.use("/proofs", proofsRouter);
-app.use("/stellar", stellarRouter);
 app.use("/reports", reportsRouter);
 app.use("/streams", streamsRouter);
 app.use("/api/streams", streamsRouter);
@@ -193,38 +193,12 @@ app.use("/api/employers", brandingRouter);
 // Start time for uptime calculation
 const startTime = Date.now();
 
-// Default testing account (Note: in production, each employer/caller would have their own or share a global treasury sequence pool)
+// EVM hot wallet for relay transactions (optional in development)
 const HOT_WALLET_ACCOUNT = process.env.HOT_WALLET_ACCOUNT || "";
-if (
-  process.env.NODE_ENV !== "development" &&
-  (!HOT_WALLET_ACCOUNT || HOT_WALLET_ACCOUNT.startsWith("GAXXX"))
-) {
-  console.error(
-    "FATAL: HOT_WALLET_ACCOUNT is not set or is a placeholder. Set a valid Stellar account address.",
-  );
-  process.exit(1);
-}
 export const nonceManager = new NonceManager(
   HOT_WALLET_ACCOUNT,
-  "https://horizon-testnet.stellar.org",
+  process.env.ARC_RPC_URL ?? "https://rpc.testnet.arc.network",
 );
-
-// Initialize nonce manager with timeout, but don't block startup
-// Log warning if initialization fails
-void (async () => {
-  try {
-    await nonceManager.initialize(10000);
-    console.log("[Backend] ✅ Nonce manager initialized successfully");
-  } catch (error) {
-    console.warn(
-      "[Backend] ⚠️  Nonce manager initialization failed:",
-      error instanceof Error ? error.message : String(error),
-    );
-    console.warn(
-      "[Backend] ⚠️  First getNonce() call will attempt initialization again",
-    );
-  }
-})();
 
 /**
  * @api {get} /health Health check endpoint

@@ -1,9 +1,11 @@
 import { Request, Response, NextFunction } from "express";
 import { createRemoteJWKSet, jwtVerify } from "jose";
+import { config } from "../config";
 import { logger } from "../logger";
 
-// Read lazily so dotenv.config() in index.ts populates process.env before first use.
-function getPrivyAppId() { return process.env.PRIVY_APP_ID ?? ""; }
+// Single source of truth — config/index.ts runs dotenv and fail-fast validation
+// at load, so importing it here also guarantees that check runs at boot.
+function getPrivyAppId() { return config.privy.appId; }
 
 // Lazy-initialise JWKS per app ID; reset if app ID changes (shouldn't happen in prod).
 let cachedAppId = "";
@@ -40,6 +42,24 @@ declare global {
   }
 }
 
+/**
+ * Verifies a raw Privy JWT against Privy's JWKS and returns its claims.
+ * Throws if the token is missing, malformed, expired, or the signature
+ * doesn't check out. Shared by the mobile-facing middleware below and by
+ * rbac.ts, so there is exactly one place that does real Privy verification.
+ */
+export async function verifyPrivyJwt(token: string): Promise<PrivyClaims> {
+  const jwks = getOrInitJWKS();
+  if (!jwks) {
+    throw new Error("Auth not configured: PRIVY_APP_ID is not set");
+  }
+  const { payload } = await jwtVerify(token, jwks, {
+    issuer:   "privy.io",
+    audience: getPrivyAppId(),
+  });
+  return payload as unknown as PrivyClaims;
+}
+
 export async function requirePrivyAuth(
   req: Request,
   res: Response,
@@ -51,18 +71,9 @@ export async function requirePrivyAuth(
     return;
   }
 
-  const jwks = getOrInitJWKS();
-  if (!jwks) {
-    res.status(401).json({ error: "Auth not configured" });
-    return;
-  }
   const token = authHeader.slice(7);
   try {
-    const { payload } = await jwtVerify(token, jwks, {
-      issuer:   "privy.io",
-      audience: getPrivyAppId(),
-    });
-    req.privyUser = payload as unknown as PrivyClaims;
+    req.privyUser = await verifyPrivyJwt(token);
     next();
   } catch (err) {
     logger.debug({ err }, "Privy token verification failed");
@@ -77,15 +88,9 @@ export async function optionalPrivyAuth(
 ) {
   const authHeader = req.headers.authorization;
   if (!authHeader?.startsWith("Bearer ")) return next();
-  const jwks = getOrInitJWKS();
-  if (!jwks) return next();
   const token = authHeader.slice(7);
   try {
-    const { payload } = await jwtVerify(token, jwks, {
-      issuer:   "privy.io",
-      audience: getPrivyAppId(),
-    });
-    req.privyUser = payload as unknown as PrivyClaims;
+    req.privyUser = await verifyPrivyJwt(token);
   } catch {}
   next();
 }

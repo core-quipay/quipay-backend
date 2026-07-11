@@ -3,11 +3,36 @@ import RedisStore from "rate-limit-redis";
 import Redis from "ioredis";
 import { NextFunction, Request, RequestHandler, Response } from "express";
 import { createProblemDetails } from "./errorHandler";
-import { decodeJwtPayload } from "./rbac";
+
+/**
+ * Unverified base64 decode of a JWT payload, used only to pick a rate-limit
+ * bucket key. Not a security boundary — a spoofed claim only lets a caller
+ * pick a different rate-limit bucket, not bypass access control (that's
+ * `authenticateRequest` in rbac.ts, which does real signature verification).
+ */
+function decodeJwtPayload(token: string): Record<string, unknown> | null {
+  const [, payloadSegment] = token.split(".");
+  if (!payloadSegment) {
+    return null;
+  }
+
+  try {
+    const normalized = payloadSegment.replace(/-/g, "+").replace(/_/g, "/");
+    const padded = normalized.padEnd(
+      normalized.length + ((4 - (normalized.length % 4)) % 4),
+      "=",
+    );
+    const decoded = Buffer.from(padded, "base64").toString("utf8");
+    const payload = JSON.parse(decoded) as Record<string, unknown>;
+    return payload && typeof payload === "object" ? payload : null;
+  } catch {
+    return null;
+  }
+}
 
 // Initialize Redis client (optional, falls back to memory store if not configured)
 let redisClient: Redis | null = null;
-const STELLAR_WALLET_ADDRESS = /^G[A-Z2-7]{55}$/;
+const EVM_WALLET_ADDRESS = /^0x[0-9a-fA-F]{40}$/;
 const identitySlidingWindowStore = new Map<string, number[]>();
 
 if (process.env.REDIS_URL) {
@@ -70,7 +95,7 @@ function normalizeWalletCandidate(candidate: unknown): string | null {
   const bearerMatch = trimmed.match(/^Bearer\s+(.+)$/i);
   const maybeWallet = bearerMatch ? bearerMatch[1].trim() : trimmed;
 
-  return STELLAR_WALLET_ADDRESS.test(maybeWallet) ? maybeWallet : null;
+  return EVM_WALLET_ADDRESS.test(maybeWallet) ? maybeWallet : null;
 }
 
 function extractWalletFromRecord(
@@ -99,7 +124,7 @@ function extractWalletFromRecord(
   return null;
 }
 
-function extractStellarAddressFromJwtClaims(req: Request): string | null {
+function extractEvmAddressFromJwtClaims(req: Request): string | null {
   const authHeader = req.headers.authorization;
   if (typeof authHeader !== "string") {
     return null;
@@ -116,8 +141,8 @@ function extractStellarAddressFromJwtClaims(req: Request): string | null {
   }
 
   const candidates = [
-    payload.stellar_address,
-    payload.stellarAddress,
+    payload.evm_address,
+    payload.evmAddress,
     payload.wallet_address,
     payload.walletAddress,
     payload.address,
@@ -135,7 +160,7 @@ function extractStellarAddressFromJwtClaims(req: Request): string | null {
 }
 
 export function extractWalletAddress(req: Request): string | null {
-  const jwtWallet = extractStellarAddressFromJwtClaims(req);
+  const jwtWallet = extractEvmAddressFromJwtClaims(req);
   if (jwtWallet) {
     return jwtWallet;
   }
@@ -144,7 +169,7 @@ export function extractWalletAddress(req: Request): string | null {
     req.headers["x-wallet-address"],
     req.headers["x-employer-address"],
     req.headers["x-worker-address"],
-    req.headers["x-stellar-address"],
+    req.headers["x-evm-address"],
     req.headers.authorization,
   ];
 
@@ -182,11 +207,11 @@ function isReadRequest(req: Request): boolean {
 
 function getIdentityKey(req: Request): {
   key: string;
-  source: "stellar" | "ip";
+  source: "evm" | "ip";
 } {
   const walletAddress = extractWalletAddress(req);
   if (walletAddress) {
-    return { key: `stellar:${walletAddress}`, source: "stellar" };
+    return { key: `evm:${walletAddress}`, source: "evm" };
   }
   return { key: `ip:${req.ip || "unknown"}`, source: "ip" };
 }
@@ -248,7 +273,7 @@ export function resetWalletRateLimiterStore(): void {
 const identityAwareRateLimiter = createIdentityAwareRateLimiter();
 
 /**
- * Standard rate limiter: 100 reads / 20 writes per 15 min, per Stellar address
+ * Standard rate limiter: 100 reads / 20 writes per 15 min, per EVM address
  * (or IP as fallback). State is persisted in Redis so limits survive restarts.
  */
 export const standardRateLimiter = identityAwareRateLimiter;

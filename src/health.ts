@@ -1,4 +1,3 @@
-import { rpc } from "@stellar/stellar-sdk";
 import { getPool } from "./db/pool";
 import { vaultService } from "./services/vaultService";
 import { nonceManager } from "./index";
@@ -19,7 +18,7 @@ export interface HealthResponseBody {
   service: string;
   dependencies: {
     database: DependencyHealth;
-    stellarRpc: DependencyHealth;
+    arcRpc: DependencyHealth;
     vault: DependencyHealth;
     nonceManager: DependencyHealth;
   };
@@ -96,38 +95,42 @@ async function checkDatabase(): Promise<DependencyHealth> {
   }
 }
 
-async function checkStellarRpc(): Promise<DependencyHealth> {
+async function checkArcRpc(): Promise<DependencyHealth> {
   const startedAt = Date.now();
   const rpcUrl =
-    process.env.STELLAR_RPC_URL ||
-    process.env.PUBLIC_STELLAR_RPC_URL ||
-    "https://soroban-testnet.stellar.org";
+    process.env.ARC_RPC_URL || "https://rpc.testnet.arc.network";
 
   try {
-    const server = new rpc.Server(rpcUrl);
-    const latestLedger = await withTimeout(
-      server.getLatestLedger(),
+    const response = await withTimeout(
+      fetch(rpcUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_blockNumber", params: [] }),
+      }),
       CHECK_TIMEOUT_MS,
     );
 
-    if (!latestLedger?.sequence) {
+    const data = (await response.json()) as { result?: string };
+    const blockNumber = data.result ? parseInt(data.result, 16) : null;
+
+    if (!blockNumber) {
       return {
         status: "unhealthy",
         latencyMs: Date.now() - startedAt,
-        details: "Missing latest ledger sequence",
+        details: "Missing block number in response",
       };
     }
 
     return {
       status: "healthy",
       latencyMs: Date.now() - startedAt,
-      details: `ledger=${latestLedger.sequence}`,
+      details: `block=${blockNumber}`,
     };
   } catch (error) {
     return {
       status: "unhealthy",
       latencyMs: Date.now() - startedAt,
-      details: error instanceof Error ? error.message : "RPC check failed",
+      details: error instanceof Error ? error.message : "Arc RPC check failed",
     };
   }
 }
@@ -220,16 +223,16 @@ async function checkNonceManager(): Promise<DependencyHealth> {
 export async function getHealthResponse(
   startTimeMs: number,
 ): Promise<{ httpStatus: 200 | 503; body: HealthResponseBody }> {
-  const [database, stellarRpc, vault, nonceManagerHealth] = await Promise.all([
+  const [database, arcRpc, vault, nonceManagerHealth] = await Promise.all([
     checkDatabase(),
-    checkStellarRpc(),
+    checkArcRpc(),
     checkVault(),
     checkNonceManager(),
   ]);
 
   const allHealthy =
     database.status === "healthy" &&
-    stellarRpc.status === "healthy" &&
+    arcRpc.status === "healthy" &&
     vault.status === "healthy" &&
     nonceManagerHealth.status === "healthy";
 
@@ -241,7 +244,7 @@ export async function getHealthResponse(
     service: SERVICE_NAME,
     dependencies: {
       database,
-      stellarRpc,
+      arcRpc,
       vault,
       nonceManager: nonceManagerHealth,
     },

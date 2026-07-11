@@ -273,8 +273,8 @@ adminRouter.post(
         console.log(
           `[DLQ] Admin triggered ledger sync replay for ledger block.`,
         );
-        // Assuming startSyncer runs a catch-up block sequence anyway
-        startSyncer().catch(console.error);
+        // startSyncer is fire-and-forget and already catches its own errors internally
+        startSyncer();
       } else {
         return res
           .status(400)

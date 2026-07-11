@@ -100,7 +100,7 @@ streamsRouter.post(
       endTs: body.endTs,
       status: body.status,
       ledger: body.ledger,
-      changedBy: req.user.stellarAddress ?? req.user.id,
+      changedBy: req.user.evmAddress ?? req.user.id,
     });
 
     const stream = await getStreamById(body.streamId);
@@ -155,7 +155,7 @@ streamsRouter.delete(
 
     const deleted = await softDeleteStream({
       streamId,
-      deletedBy: req.user.stellarAddress ?? req.user.id,
+      deletedBy: req.user.evmAddress ?? req.user.id,
       cancelReason: req.body.cancelReason,
     });
 
@@ -169,7 +169,7 @@ streamsRouter.delete(
       streamId,
       status: "cancelled",
       cancelledAt: new Date().toISOString(),
-      cancelledBy: req.user.stellarAddress ?? req.user.id,
+      cancelledBy: req.user.evmAddress ?? req.user.id,
     });
   },
 );

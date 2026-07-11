@@ -36,6 +36,28 @@ import request from "supertest";
 import { analyticsRouter } from "../../analytics";
 import { globalCache } from "../../utils/cache";
 
+// rbac.ts now verifies a real Privy JWT — out of scope for this DB/caching
+// integration suite, so fake req.user from the test's x-user-id header the
+// same way streams/payslips integration tests already do.
+jest.mock("../../middleware/rbac", () => ({
+  authenticateRequest: (req: any, _res: any, next: any) => {
+    req.user = {
+      id: req.headers["x-user-id"] || "test-user-1",
+      stellarAddress: req.headers["x-user-id"] || "test-user-1",
+      role: 1,
+      accountId: 1,
+      quipayId: "QP_TEST_SENTINEL",
+    };
+    next();
+  },
+  requireUser: (req: any, res: any, next: any) => {
+    if (!req.user) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+    next();
+  },
+}));
+
 describe("Analytics Integration Tests", () => {
   let testDb: TestDatabase;
   let pool: Pool;
