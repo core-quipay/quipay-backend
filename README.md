@@ -35,8 +35,8 @@ The Quipay automation engine — an Express/TypeScript API server that orchestra
 ### 1. Clone and install
 
 ```bash
-git clone git@github.com:Wilfred007/Quipay.git
-cd Quipay/backend
+git clone https://github.com/core-quipay/quipay-backend.git
+cd quipay-backend
 npm install
 ```
 
